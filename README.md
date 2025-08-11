@@ -393,6 +393,21 @@ For example:
 package-registry --feature-proxy-mode=true -proxy-to=https://epr.elastic.co
 ```
 
+## OCI Indexer (Technical Preview)
+
+Package Registry can serve packages from an OCI (Open Container Initiative) registry using [ORAS](https://oras.land/).
+This allows packages to be stored and distributed using any OCI-compliant registry.
+
+This mode is enabled with the parameter `-feature-oci-indexer=true` and requires specifying an OCI registry URL:
+
+```bash
+package-registry -feature-oci-indexer -oci-registry "registry.example.com"
+```
+
+For detailed configuration and usage information, see the [OCI Indexer documentation](oci/README.md).
+
+**Note**: This is a technical preview feature and may be unstable. Package search capabilities may depend on the specific OCI registry implementation. For enhanced search, consider using registries like [Zot](https://zotregistry.dev) with search extensions.
+
 
 ## Release
 
