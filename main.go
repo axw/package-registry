@@ -41,6 +41,7 @@ import (
 	internalStorage "github.com/elastic/package-registry/internal/storage"
 	"github.com/elastic/package-registry/internal/util"
 	"github.com/elastic/package-registry/metrics"
+	"github.com/elastic/package-registry/oci"
 	"github.com/elastic/package-registry/packages"
 	"github.com/elastic/package-registry/proxymode"
 	"github.com/elastic/package-registry/storage"
@@ -81,6 +82,13 @@ var (
 	featureProxyMode bool
 	proxyTo          string
 
+	featureOCIIndexer   bool
+	ociRegistry         string
+	ociRepository       string
+	ociUsername         string
+	ociPassword         string
+	ociInsecure         bool
+
 	defaultConfig = Config{
 		CacheTimeIndex:               10 * time.Second,
 		CacheTimeSearch:              10 * time.Minute,
@@ -118,6 +126,14 @@ func init() {
 	// The following proxy-indexer related flags are technical preview and might be removed in the future or renamed
 	flag.BoolVar(&featureProxyMode, "feature-proxy-mode", false, "Enable proxy mode to include packages from other endpoint (technical preview).")
 	flag.StringVar(&proxyTo, "proxy-to", "https://epr.elastic.co/", "Proxy-to endpoint")
+
+	// The following OCI indexer related flags are technical preview and might be removed in the future or renamed
+	flag.BoolVar(&featureOCIIndexer, "feature-oci-indexer", false, "Enable OCI indexer to include packages from OCI registry (technical preview).")
+	flag.StringVar(&ociRegistry, "oci-registry", "", "OCI registry URL (e.g., registry.example.com).")
+	flag.StringVar(&ociRepository, "oci-repository", "packages", "OCI repository name within the registry.")
+	flag.StringVar(&ociUsername, "oci-username", "", "Username for OCI registry authentication.")
+	flag.StringVar(&ociPassword, "oci-password", "", "Password for OCI registry authentication.")
+	flag.BoolVar(&ociInsecure, "oci-insecure", false, "Allow insecure connections to OCI registry.")
 }
 
 type Config struct {
@@ -149,6 +165,10 @@ func main() {
 
 	if featureEnableSearchCache && !featureSQLStorageIndexer {
 		log.Fatal("feature-enable-search-cache is enabled, but feature-sql-storage-indexer is not enabled. Search cache is just supported with SQL Storage indexer.")
+	}
+
+	if featureOCIIndexer && ociRegistry == "" {
+		log.Fatal("feature-oci-indexer is enabled, but oci-registry is not specified.")
 	}
 
 	if printVersionInfo {
@@ -370,6 +390,12 @@ func initIndexer(ctx context.Context, logger *zap.Logger, apmTracer *apm.Tracer,
 		combined = append(combined, indexer)
 	}
 
+	if featureOCIIndexer {
+		logger.Warn("Technical preview: OCI indexer is an experimental feature and it may be unstable.")
+		indexer := initOCIIndexer(logger)
+		combined = append(combined, indexer)
+	}
+
 	combined = append(combined,
 		packages.NewZipFileSystemIndexer(logger, packagesBasePaths...),
 		packages.NewFileSystemIndexer(logger, packagesBasePaths...),
@@ -425,6 +451,28 @@ func initSQLStorageIndexer(ctx context.Context, logger *zap.Logger, apmTracer *a
 	}
 
 	return internalStorage.NewIndexer(logger, storageClient, options), nil
+}
+
+func initOCIIndexer(logger *zap.Logger) *oci.Indexer {
+	// Get credentials from environment variables if not provided via flags
+	username := ociUsername
+	password := ociPassword
+	if username == "" {
+		username = os.Getenv("EPR_OCI_USERNAME")
+	}
+	if password == "" {
+		password = os.Getenv("EPR_OCI_PASSWORD")
+	}
+
+	options := oci.IndexerOptions{
+		Registry:   ociRegistry,
+		Repository: ociRepository,
+		Username:   username,
+		Password:   password,
+		Insecure:   ociInsecure,
+	}
+
+	return oci.NewIndexer(logger, options)
 }
 
 func newStorageClient(ctx context.Context, logger *zap.Logger) (*gstorage.Client, error) {
